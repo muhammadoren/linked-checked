@@ -1,4 +1,53 @@
 #!/usr/bin/env python3
+# Auto-install dependencies bago mag-import. Walang manual pip na kailangan.
+import importlib.util
+import subprocess
+import sys
+
+
+def _ensure_pip():
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, OSError):
+        print("[setup] pip not found, bootstrapping via ensurepip ...")
+        subprocess.check_call([sys.executable, "-m", "ensurepip", "--upgrade", "--default-pip"])
+
+
+def _pip_install(pkg, extra=()):
+    cmd = [sys.executable, "-m", "pip", "install", "--quiet", *extra, pkg]
+    subprocess.check_call(cmd)
+
+
+def ensure(pkg, module=None):
+    module = module or pkg
+    if importlib.util.find_spec(module) is not None:
+        return True
+
+    _ensure_pip()
+    print(f"[setup] installing {pkg} ...")
+    for extra in ((), ("--user",)):
+        try:
+            _pip_install(pkg, extra)
+        except subprocess.CalledProcessError as e:
+            print(f"[setup] pip failed for {pkg} ({e}); retrying variant ...")
+            continue
+        if importlib.util.find_spec(module) is not None:
+            print(f"[setup] {pkg} ready")
+            return True
+
+    return importlib.util.find_spec(module) is not None
+
+
+_missing = [p for p in ("flask", "requests") if not ensure(p)]
+if _missing:
+    print(f"[setup] could not install: {', '.join(_missing)}")
+    print(f"[setup] manual fix: {sys.executable} -m pip install {' '.join(_missing)}")
+    sys.exit(1)
+
 import json
 import re
 import time
@@ -247,7 +296,6 @@ def classify(pic):
 
 
 def check(ident):
-    """Run the whole flow. Returns a result dict."""
     with requests.Session() as s:
         s.cookies.update(COOKIES)
         s.headers.update({"user-agent": HEADERS["user-agent"]})
@@ -358,11 +406,8 @@ def run(ident):
     except Exception as e:
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}", "input": ident}), 500
 
-    if not result.get("ok"):
-        return jsonify(result), 200
     return jsonify(result), 200
 
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
-    
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=False)
